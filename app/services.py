@@ -3,22 +3,30 @@ import json
 from .config import settings
 from .schemas import OfferResponse
 
+# Set API key
 openai.api_key = settings.OPENAI_API_KEY
 
+# -----------------------------
+# GPT call for simple questions
+# -----------------------------
 def call_gpt_question(prompt: str) -> str:
-    """GPT call for answering questions"""
-    response = openai.ChatCompletion.create(
+    """
+    Ask GPT a domain-related question and return a plain text answer.
+    Compatible with openai>=1.0.0
+    """
+    response = openai.chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=[
             {"role": "system", "content": "You are an assistant for contractors."},
             {"role": "user", "content": prompt}
         ]
     )
-    return response.choices[0].message["content"]
+    return response.choices[0].message.content
 
+# -----------------------------
+# GPT call for structured offers
+# -----------------------------
 def call_gpt_offer(content: str, metadata: dict | None) -> OfferResponse:
-    """GPT function-calling for structured offers"""
-
     functions = [
         {
             "name": "generate_offer",
@@ -48,16 +56,26 @@ def call_gpt_offer(content: str, metadata: dict | None) -> OfferResponse:
         }
     ]
 
-    response = openai.ChatCompletion.create(
+    response = openai.chat.completions.create(
         model=settings.OPENAI_MODEL,
         messages=[
             {"role": "system", "content": "You are an assistant that creates professional contractor offers."},
             {"role": "user", "content": f"Create an offer for: {content}. Extra info: {metadata}"}
         ],
         functions=functions,
-        function_call={"name": "generate_offer"}  # force function call
+        function_call={"name": "generate_offer"}
     )
 
-    arguments = response.choices[0].message["function_call"]["arguments"]
-    offer_data = json.loads(arguments)
+    try:
+        # ← fixed line
+        arguments = response.choices[0].message.function_call.arguments
+        offer_data = json.loads(arguments)
+    except (AttributeError, json.JSONDecodeError) as e:
+        return OfferResponse(
+            project_title="Error generating offer",
+            items=[],
+            total=0,
+            notes=f"Failed to parse GPT output: {e}"
+        )
+
     return OfferResponse(**offer_data)
